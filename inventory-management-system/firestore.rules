@@ -1,0 +1,164 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.email == "mozizskyline@gmail.com");
+    }
+
+    function isBootstrapAdmin() {
+      return isSignedIn() && request.auth.token.email == "mozizskyline@gmail.com";
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        isBootstrapAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == "Admin")
+      );
+    }
+
+    function isManager() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == "Manager")
+      );
+    }
+
+    function isStaff() {
+      return isSignedIn() && (
+        isManager() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == "Staff")
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- ENTITY VALIDATORS ---
+
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.email is string && data.email.size() <= 256 &&
+             data.role in ["Admin", "Manager", "Staff"];
+    }
+
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.sku is string && data.sku.size() <= 100 &&
+             data.category is string && data.category.size() <= 100 &&
+             data.quantity is number && data.quantity >= 0 &&
+             data.costPrice is number && data.costPrice >= 0 &&
+             data.sellingPrice is number && data.sellingPrice >= 0 &&
+             data.supplier is string && data.supplier.size() <= 200 &&
+             data.minStock is number && data.minStock >= 0;
+    }
+
+    function isValidTransaction(data) {
+      return data.productId is string && data.productId.size() <= 128 &&
+             data.productName is string && data.productName.size() <= 200 &&
+             data.type in ["stock_in", "stock_out"] &&
+             data.quantity is number && data.quantity > 0 &&
+             data.reason is string && data.reason.size() <= 500 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() <= 200;
+    }
+
+    function isValidSale(data) {
+      return data.productId is string && data.productId.size() <= 128 &&
+             data.productName is string && data.productName.size() <= 200 &&
+             data.quantity is number && data.quantity > 0 &&
+             data.total is number && data.total >= 0 &&
+             data.paymentType in ["Cash", "Transfer"] &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() <= 200;
+    }
+
+    // --- COLLECTION RULES ---
+
+    // USERS COLLECTION
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      
+      // Let anyone register high-integrity profile as "Staff" (or "Admin" for the system owner email)
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming()) && (
+        (isBootstrapAdmin() && incoming().role == "Admin") ||
+        (incoming().role == "Staff")
+      );
+
+      // Protect RBAC properties from self-modification except by true Admins
+      // Staff/Manager can only modify their own profile name
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          request.auth.uid == userId &&
+          isValidUser(incoming()) &&
+          incoming().role == existing().role &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name'])
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // PRODUCTS COLLECTION
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      allow create: if isManager() && isValidProduct(incoming());
+      
+      // Managers can edit anything on a product.
+      // Staff can ONLY decrement/increment product inventory quantities as part of registered sales or stock movements
+      allow update: if isSignedIn() && isValidProduct(incoming()) && (
+        isManager() || (
+          isStaff() && 
+          incoming().name == existing().name &&
+          incoming().sku == existing().sku &&
+          incoming().costPrice == existing().costPrice &&
+          incoming().sellingPrice == existing().sellingPrice &&
+          incoming().category == existing().category &&
+          incoming().supplier == existing().supplier &&
+          incoming().minStock == existing().minStock &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['quantity'])
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // TRANSACTIONS COLLECTION (IMMUTABLE LOGS)
+    match /transactions/{transactionId} {
+      allow read: if isStaff();
+      allow create: if isStaff() && isValidTransaction(incoming());
+      allow update, delete: if false; // Strict Immutable Ledger
+    }
+
+    // SALES COLLECTION (IMMUTABLE AUDIT LEDGER)
+    match /sales/{saleId} {
+      allow read: if isStaff();
+      allow create: if isStaff() && isValidSale(incoming());
+      allow update, delete: if false; // Strict Immutable Ledger
+    }
+  }
+}

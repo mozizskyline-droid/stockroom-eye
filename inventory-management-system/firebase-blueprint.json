@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System users and their role-based access levels.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique user ID matching Firebase Auth." },
+        "name": { "type": "string", "description": "DisplayName of the user." },
+        "email": { "type": "string", "description": "Registered email of the user." },
+        "role": { "type": "string", "enum": ["Admin", "Manager", "Staff"], "description": "System access role." }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory core products.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique product ID." },
+        "name": { "type": "string", "description": "Descriptive name of the product." },
+        "sku": { "type": "string", "description": "Stock Keeping Unit unique code." },
+        "category": { "type": "string", "description": "Category folder classification." },
+        "quantity": { "type": "number", "description": "Quantity currently in stock." },
+        "costPrice": { "type": "number", "description": "Unit purchase price." },
+        "sellingPrice": { "type": "number", "description": "Unit sale price." },
+        "supplier": { "type": "string", "description": "Primary supplier name." },
+        "minStock": { "type": "number", "description": "Threshold for low stock alerts." }
+      },
+      "required": ["id", "name", "sku", "category", "quantity", "costPrice", "sellingPrice", "supplier", "minStock"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Audit trails for stock movements (stock_in or stock_out).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique transaction ID." },
+        "productId": { "type": "string", "description": "Reference ID for the product." },
+        "productName": { "type": "string", "description": "Cached product name." },
+        "type": { "type": "string", "enum": ["stock_in", "stock_out"], "description": "Nature of movement." },
+        "quantity": { "type": "number", "description": "How much stock was moved." },
+        "reason": { "type": "string", "description": "Reason details (e.g., Sale, Damage, Transfer)." },
+        "date": { "type": "string", "format": "date-time", "description": "UTC ISO timestamp." },
+        "userId": { "type": "string", "description": "ID of operator." },
+        "userName": { "type": "string", "description": "Operator name." }
+      },
+      "required": ["id", "productId", "productName", "type", "quantity", "date", "userId", "userName"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Recorded sales transaction documents.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique sales record ID." },
+        "productId": { "type": "string", "description": "Reference product ID." },
+        "productName": { "type": "string", "description": "Snapshot of product name." },
+        "quantity": { "type": "number", "description": "Items sold." },
+        "total": { "type": "number", "description": "Total sales revenue." },
+        "paymentType": { "type": "string", "enum": ["Cash", "Transfer"], "description": "Payment mode selection." },
+        "date": { "type": "string", "format": "date-time", "description": "Date of transaction." },
+        "userId": { "type": "string", "description": "ID of agent who sold it." },
+        "userName": { "type": "string", "description": "Name of agent." }
+      },
+      "required": ["id", "productId", "productName", "quantity", "total", "paymentType", "date", "userId", "userName"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles database."
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Products list dataset."
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Logs tracking additions and removals of stock."
+    },
+    "/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Standard business sales track."
+    }
+  }
+}

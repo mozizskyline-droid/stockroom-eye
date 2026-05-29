@@ -1,0 +1,6 @@
+{
+  "name": "Inventory Management System",
+  "description": "A responsive, modern, full-stack Inventory Management System equipped with stock tracking, sales reporting, interactive dashboard, and user role management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
