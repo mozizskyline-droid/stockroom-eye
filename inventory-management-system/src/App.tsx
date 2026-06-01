@@ -43,27 +43,27 @@ export default function App() {
   const [password, setPassword] = React.useState('');
   const [fullName, setFullName] = React.useState('');
 
-  // Core Data Subscription States
-  const [products, setProducts] = React.useState<Product[]>([]);
-  const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
-  const [sales, setSales] = React.useState<Sale[]>([]);
+  // Core Data States - initialized with empty arrays to satisfy view parameters
+  const [products] = React.useState<Product[]>([]);
+  const [transactions] = React.useState<StockTransaction[]>([]);
+  const [sales] = React.useState<Sale[]>([]);
   const [users] = React.useState<UserProfile[]>([]);
   const [settings, setSettings] = React.useState<SystemSettings>({
     businessName: "Stockroom Eye",
     currency: "$",
     taxEnabled: true,
-    taxRate: 7.50
+    taxRate: 7.55
   });
 
   // Global Toast Alert State
   const [toast, setToast] = React.useState<{ message: string; type: 'success' | 'warn' | 'error' } | null>(null);
 
-  const triggerToast = (message: string, type: 'success' | 'warn' | 'error') => {
+  const triggerToast = React.useCallback((message: string, type: 'success' | 'warn' | 'error') => {
     setToast({ message, type });
     setTimeout(() => {
       setToast((prev) => prev?.message === message ? null : prev);
     }, 4500);
-  };
+  }, []);
 
   // ----------------------------------------------------
   // SUPABASE AUTH PIPELINE CHANNEL
@@ -100,7 +100,7 @@ export default function App() {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [triggerToast]);
 
   // ----------------------------------------------------
   // AUTHENTICATION CONTROLLER HANDLERS
@@ -140,7 +140,7 @@ export default function App() {
         },
       });
       if (error) throw error;
-      triggerToast("Account registered! Please check your email inbox to confirm your registration.", "success");
+      triggerToast("Account registered! Check email if verification is on, or sign in now.", "success");
       setIsSignUpMode(false);
     } catch (err: any) {
       triggerToast(err.message || String(err), 'error');
@@ -152,9 +152,6 @@ export default function App() {
   const handleSignOutSubmit = async () => {
     try {
       await supabase.auth.signOut();
-      setProducts([]);
-      setTransactions([]);
-      setSales([]);
       setCurrentUser(null);
       setActiveTab("dashboard");
       triggerToast("Logged out successfully.", 'success');
@@ -183,7 +180,7 @@ export default function App() {
     );
   }
 
-  // PRODUCTION AUTH GATEWAY LAYOUT (Email & Password Secure Focus)
+  // PRODUCTION AUTH GATEWAY LAYOUT
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 relative font-sans">
@@ -294,11 +291,11 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans overflow-hidden">
       {toast && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center space-x-2.5 p-4 rounded-xl shadow-2xl border bg-white animate-in slide-in-from-bottom-5 duration-205 border-slate-100 select-none">
+        <div className="fixed bottom-5 right-5 z-50 flex items-center space-x-2.5 p-4 rounded-xl shadow-2xl border bg-white animate-in slide-in-from-bottom-5 border-slate-100 select-none">
           {toast.type === "success" && <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />}
           {toast.type === "warn" && <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />}
           {toast.type === "error" && <XCircle className="h-5 w-5 text-red-500 shrink-0" />}
-          <div className="text-slate-705 text-xs font-semibold leading-normal max-w-sm">
+          <div className="text-slate-700 text-xs font-semibold leading-normal max-w-sm">
             {toast.message}
           </div>
         </div>
