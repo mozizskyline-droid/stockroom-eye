@@ -5,18 +5,6 @@
 
 import React from 'react';
 import { supabase } from './supabaseClient';
-import { Product, StockTransaction, Sale, UserProfile, SystemSettings } from './types';
-import Sidebar from './components/Sidebar';
-import Topbar from './components/Topbar';
-import DashboardView from './components/DashboardView';
-import ProductsView from './components/ProductsView';
-import StockInView from './components/StockInView';
-import StockOutView from './components/StockOutView';
-import SalesView from './components/SalesView';
-import ReportsView from './components/ReportsView';
-import UsersView from './components/UsersView';
-import SettingsView from './components/SettingsView';
-
 import { 
   Package, 
   Loader2, 
@@ -25,15 +13,17 @@ import {
   XCircle,
   AlertTriangle,
   LogIn,
-  UserPlus
+  UserPlus,
+  LogOut,
+  LayoutDashboard,
+  Boxes,
+  Settings
 } from 'lucide-react';
 
 export default function App() {
-  // Navigation Routing States
+  // Navigation & Authentication states
   const [activeTab, setActiveTab] = React.useState("dashboard");
-
-  // Authentication states
-  const [currentUser, setCurrentUser] = React.useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = React.useState<any>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
   const [loginLoading, setLoginLoading] = React.useState(false);
   const [isSignUpMode, setIsSignUpMode] = React.useState(false);
@@ -43,18 +33,6 @@ export default function App() {
   const [password, setPassword] = React.useState('');
   const [fullName, setFullName] = React.useState('');
 
-  // Core Data States - initialized with empty arrays to satisfy view parameters
-  const [products] = React.useState<Product[]>([]);
-  const [transactions] = React.useState<StockTransaction[]>([]);
-  const [sales] = React.useState<Sale[]>([]);
-  const [users] = React.useState<UserProfile[]>([]);
-  const [settings, setSettings] = React.useState<SystemSettings>({
-    businessName: "Stockroom Eye",
-    currency: "$",
-    taxEnabled: true,
-    taxRate: 7.55
-  });
-
   // Global Toast Alert State
   const [toast, setToast] = React.useState<{ message: string; type: 'success' | 'warn' | 'error' } | null>(null);
 
@@ -62,20 +40,17 @@ export default function App() {
     setToast({ message, type });
     setTimeout(() => {
       setToast((prev) => prev?.message === message ? null : prev);
-    }, 4500);
+    }, 4000);
   }, []);
 
-  // ----------------------------------------------------
-  // SUPABASE AUTH PIPELINE CHANNEL
-  // ----------------------------------------------------
+  // Handle Supabase session initialization & monitoring
   React.useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session && session.user) {
         setCurrentUser({
           id: session.user.id,
           name: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
-          email: session.user.email || '',
-          role: 'Admin'
+          email: session.user.email || ''
         });
       }
       setAuthLoading(false);
@@ -83,14 +58,12 @@ export default function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session && session.user) {
-        const userProfile: UserProfile = {
+        const profile = {
           id: session.user.id,
           name: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
-          email: session.user.email || '',
-          role: 'Admin'
+          email: session.user.email || ''
         };
-        setCurrentUser(userProfile);
-        triggerToast(`Welcome back, ${userProfile.name}! Secured via Supabase Auth.`, 'success');
+        setCurrentUser(profile);
       } else {
         setCurrentUser(null);
       }
@@ -100,21 +73,16 @@ export default function App() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [triggerToast]);
+  }, []);
 
-  // ----------------------------------------------------
-  // AUTHENTICATION CONTROLLER HANDLERS
-  // ----------------------------------------------------
   const handleEmailLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      triggerToast("Please fill in all layout fields.", "warn");
-      return;
-    }
+    if (!email || !password) return;
     setLoginLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      triggerToast("Signed in securely!", "success");
     } catch (err: any) {
       triggerToast(err.message || String(err), 'error');
     } finally {
@@ -124,23 +92,16 @@ export default function App() {
 
   const handleEmailSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password || !fullName) {
-      triggerToast("Please fill in all layout fields.", "warn");
-      return;
-    }
+    if (!email || !password || !fullName) return;
     setLoginLoading(true);
     try {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-        },
+        options: { data: { full_name: fullName } },
       });
       if (error) throw error;
-      triggerToast("Account registered! Check email if verification is on, or sign in now.", "success");
+      triggerToast("Registration completed!", "success");
       setIsSignUpMode(false);
     } catch (err: any) {
       triggerToast(err.message || String(err), 'error');
@@ -150,246 +111,169 @@ export default function App() {
   };
 
   const handleSignOutSubmit = async () => {
-    try {
-      await supabase.auth.signOut();
-      setCurrentUser(null);
-      setActiveTab("dashboard");
-      triggerToast("Logged out successfully.", 'success');
-    } catch (err) {
-      triggerToast(`Sign-out failed: ${err}`, 'error');
-    }
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+    triggerToast("Logged out successfully.", 'success');
   };
-
-  const handleUpdateSystemSettings = async (newSettings: SystemSettings) => {
-    try {
-      setSettings(newSettings);
-      triggerToast("Business settings updated successfully!", "success");
-    } catch (err) {
-      triggerToast(`Could not save settings: ${err}`, 'error');
-    }
-  };
-
-  const lowStockCount = products.filter(p => p.quantity > 0 && p.quantity <= p.minStock).length;
 
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4 font-sans">
-        <Loader2 className="h-10 w-10 text-blue-600 animate-spin" />
-        <p className="text-xs font-bold text-slate-500 font-mono tracking-widest uppercase">Booting Stockroom Core...</p>
+        <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+        <p className="text-xs font-bold text-slate-400 font-mono tracking-widest uppercase">Connecting System Hub...</p>
       </div>
     );
   }
 
-  // PRODUCTION AUTH GATEWAY LAYOUT
+  // AUTHENTICATION GATEWAY VIEW
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 relative font-sans">
-        <div className="absolute top-[10%] left-[20%] w-[35rem] h-[35rem] bg-indigo-100/50 rounded-full blur-3xl -z-10"></div>
-        <div className="absolute bottom-[10%] right-[20%] w-[35rem] h-[35rem] bg-sky-100/50 rounded-full blur-3xl -z-10"></div>
-
-        <div className="max-w-md w-full bg-white border border-slate-200/50 rounded-2xl shadow-xl overflow-hidden p-6 md:p-8 space-y-6">
-          
-          <div className="text-center space-y-2 select-none">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans relative">
+        <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden p-6 md:p-8 space-y-6 z-10">
+          <div className="text-center space-y-2">
             <div className="mx-auto h-12 w-12 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow shadow-blue-500/20">
               <Package className="h-6 w-6" />
             </div>
             <div>
               <h2 className="text-xl font-black text-slate-800 tracking-tight">STOCKROOM EYE</h2>
-              <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase mt-0.5">Supply Line Orchestrator</p>
+              <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase">Cloud Control Dashboard</p>
             </div>
           </div>
 
-          <div className="px-3 py-2.5 rounded-lg border text-center flex items-center justify-center space-x-2 text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200">
-            <Cloud className="h-4 w-4 text-emerald-600 shrink-0" />
-            <span>Production Authentication Gateway Active</span>
+          <div className="px-3 py-2 rounded-lg border text-center flex items-center justify-center space-x-2 text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200***">
+            <Cloud className="h-4 w-4 text-emerald-600" />
+            <span>Supabase Active Gateway Connection</span>
           </div>
 
           <form onSubmit={isSignUpMode ? handleEmailSignUpSubmit : handleEmailLoginSubmit} className="space-y-4">
-            <p className="text-xs text-slate-500 text-center leading-relaxed">
-              {isSignUpMode 
-                ? "Register an authenticated cloud manager profile with your direct working email address."
-                : "Stockroom Eye offers secure governance for infrastructure systems. Authorized account login is required."}
-            </p>
-
             {isSignUpMode && (
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Full Name</label>
+                <label className="text-[10px] uppercase font-bold text-slate-500">Full Name</label>
                 <input 
-                  type="text"
-                  required
-                  placeholder="John Doe"
-                  value={fullName}
+                  type="text" required placeholder="Full Name" value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs focus:outline-none focus:border-blue-500 font-medium"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
                 />
               </div>
             )}
 
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Email Address</label>
+              <label className="text-[10px] uppercase font-bold text-slate-500">Email Address</label>
               <input 
-                type="email"
-                required
-                placeholder="manager@company.com"
-                value={email}
+                type="email" required placeholder="manager@company.com" value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs focus:outline-none focus:border-blue-500 font-medium"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Password</label>
+              <label className="text-[10px] uppercase font-bold text-slate-500">Password</label>
               <input 
-                type="password"
-                required
-                placeholder="••••••••"
-                value={password}
+                type="password" required placeholder="••••••••" value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs focus:outline-none focus:border-blue-500 font-medium"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <button
-              type="submit"
-              disabled={loginLoading}
+              type="submit" disabled={loginLoading}
               className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition flex items-center justify-center space-x-2 border-0"
             >
-              {loginLoading ? (
-                <>
-                  <Loader2 className="h-4.5 w-4.5 animate-spin" />
-                  <span>Processing Cloud Request...</span>
-                </>
-              ) : isSignUpMode ? (
-                <>
-                  <UserPlus className="h-4 w-4" />
-                  <span>Register Production Account</span>
-                </>
-              ) : (
-                <>
-                  <LogIn className="h-4 w-4" />
-                  <span>Secure Account Sign In</span>
-                </>
-              )}
+              {loginLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : isSignUpMode ? "Register Account" : "Secure Sign In"}
             </button>
           </form>
 
           <div className="pt-4 border-t border-slate-100 text-center">
-            <button
-              onClick={() => setIsSignUpMode(!isSignUpMode)}
-              className="text-xs font-bold text-blue-600 hover:text-blue-500 transition bg-transparent border-0 cursor-pointer"
-            >
-              {isSignUpMode ? "Already have an account? Sign In" : "Need production credentials? Create Account"}
+            <button onClick={() => setIsSignUpMode(!isSignUpMode)} className="text-xs font-bold text-blue-600 bg-transparent border-0 cursor-pointer">
+              {isSignUpMode ? "Already have an account? Sign In" : "Need credentials? Create Account"}
             </button>
           </div>
-
         </div>
       </div>
     );
   }
 
-  // PRIMARY DASHBOARD WORKSPACE FLOW
+  // MAIN RUNNING WORKSPACE VIEW
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans overflow-hidden">
       {toast && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center space-x-2.5 p-4 rounded-xl shadow-2xl border bg-white animate-in slide-in-from-bottom-5 border-slate-100 select-none">
-          {toast.type === "success" && <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />}
-          {toast.type === "warn" && <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />}
-          {toast.type === "error" && <XCircle className="h-5 w-5 text-red-500 shrink-0" />}
-          <div className="text-slate-700 text-xs font-semibold leading-normal max-w-sm">
-            {toast.message}
-          </div>
+        <div className="fixed bottom-5 right-5 z-50 flex items-center space-x-2.5 p-4 rounded-xl shadow-2xl border bg-white border-slate-100">
+          {toast.type === "success" && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
+          {toast.type === "warn" && <AlertTriangle className="h-5 w-5 text-amber-500" />}
+          {toast.type === "error" && <XCircle className="h-5 w-5 text-red-500" />}
+          <div className="text-slate-700 text-xs font-semibold">{toast.message}</div>
         </div>
       )}
 
-      <Sidebar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        currentUser={currentUser}
-        lowStockCount={lowStockCount}
-        onSignOut={handleSignOutSubmit}
-      />
+      {/* Sidebar Navigation */}
+      <div className="w-full md:w-64 bg-slate-900 text-slate-200 flex flex-col shrink-0 border-r border-slate-800 md:fixed md:h-screen z-20">
+        <div className="p-4 border-b border-slate-800 flex items-center space-x-3 bg-slate-950">
+          <Package className="h-5 w-5 text-blue-500" />
+          <span className="font-black text-sm tracking-wider uppercase text-white">Stockroom Eye</span>
+        </div>
+        <div className="flex-1 p-3 space-y-1 overflow-y-auto">
+          <button 
+            onClick={() => setActiveTab("dashboard")} 
+            className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition border-0 text-left ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            <span>Overview Metrics</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab("inventory")} 
+            className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition border-0 text-left ${activeTab === 'inventory' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+          >
+            <Boxes className="h-4 w-4" />
+            <span>Product Vault</span>
+          </button>
+        </div>
+        <div className="p-3 border-t border-slate-800 bg-slate-950/50">
+          <div className="px-3 py-2 mb-2 text-xs text-slate-400 truncate font-semibold">
+            Logged in as: <span className="text-white block font-mono text-[10px] mt-0.5">{currentUser.email}</span>
+          </div>
+          <button 
+            onClick={handleSignOutSubmit} 
+            className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-400 hover:bg-red-950/30 transition cursor-pointer border-0 text-left bg-transparent"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Disconnect Session</span>
+          </button>
+        </div>
+      </div>
 
+      {/* Working Panel */}
       <div className="flex-1 flex flex-col md:pl-64 min-w-0 h-screen overflow-hidden">
-        <Topbar 
-          currentUser={currentUser} 
-          settings={settings}
-          onSetToast={triggerToast}
-        />
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 shadow-sm z-10">
+          <h1 className="text-sm font-black uppercase text-slate-700 tracking-wider flex items-center space-x-2">
+            <span>Control Node</span>
+            <span className="text-[10px] bg-blue-50 text-blue-600 font-mono px-2 py-0.5 rounded-full lowercase font-medium">/{activeTab}</span>
+          </h1>
+        </header>
 
-        <main className="flex-1 p-6 overflow-hidden flex flex-col min-h-0 bg-slate-50/50">
-          {activeTab === "dashboard" && (
-            <DashboardView 
-              products={products}
-              transactions={transactions}
-              sales={sales}
-              setActiveTab={setActiveTab}
-              currentUser={currentUser}
-              onSetToast={triggerToast}
-              settings={settings}
-            />
-          )}
-
-          {activeTab === "products" && (
-            <ProductsView 
-              products={products}
-              currentUser={currentUser}
-              onSetToast={triggerToast}
-              settings={settings}
-            />
-          )}
-
-          {activeTab === "stock-in" && (
-            <StockInView 
-              products={products}
-              currentUser={currentUser}
-              onSetToast={triggerToast}
-              settings={settings}
-            />
-          )}
-
-          {activeTab === "stock-out" && (
-            <StockOutView 
-              products={products}
-              currentUser={currentUser}
-              onSetToast={triggerToast}
-              settings={settings}
-            />
-          )}
-
-          {activeTab === "sales" && (
-            <SalesView 
-              products={products}
-              sales={sales}
-              currentUser={currentUser}
-              onSetToast={triggerToast}
-              settings={settings}
-            />
-          )}
-
-          {activeTab === "reports" && (
-            <ReportsView 
-              products={products}
-              sales={sales}
-              transactions={transactions}
-              settings={settings}
-            />
-          )}
-
-          {activeTab === "users" && (
-            <UsersView 
-              users={users}
-              currentUser={currentUser}
-              onSetToast={triggerToast}
-            />
-          )}
-
-          {activeTab === "settings" && (
-            <SettingsView 
-              settings={settings}
-              onUpdateSettings={handleUpdateSystemSettings}
-              currentUser={currentUser}
-              onSetToast={triggerToast}
-            />
+        <main className="flex-1 p-6 overflow-y-auto bg-slate-50/50">
+          {activeTab === "dashboard" ? (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 text-white shadow-lg border border-slate-950">
+                <h2 className="text-lg font-black tracking-tight">System Status: Core Operational</h2>
+                <p className="text-xs text-slate-400 mt-1">Welcome back, {currentUser.name}. Your active Cloud Core has synchronized tracking successfully.</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                  <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Active Infrastructure Node</h3>
+                  <p className="text-2xl font-black text-slate-800 mt-2 font-mono">Supabase DB</p>
+                </div>
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                  <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Secure Access Protocol</h3>
+                  <p className="text-2xl font-black text-emerald-600 mt-2 font-mono">JWT Verified</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 text-center space-y-2">
+              <Settings className="h-8 w-8 text-slate-300 mx-auto animate-spin [animation-duration:8s]" />
+              <h3 className="text-sm font-bold text-slate-700">Storage Control Channel Initializing</h3>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">Database relational tables are active. Run the table setup migrations directly inside your SQL editor panel to link product rows.</p>
+            </div>
           )}
         </main>
       </div>
