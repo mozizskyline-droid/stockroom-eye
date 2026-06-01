@@ -4,20 +4,8 @@
  */
 
 import React from 'react';
-import { 
-  subscribeAuth, 
-  loginWithGoogle, 
-  loginWithMock, 
-  signOutUser, 
-  subscribeProducts, 
-  subscribeTransactions, 
-  subscribeSales, 
-  subscribeUsers, 
-  subscribeSettings, 
-  updateSettings,
-  isFirebaseConfigured
-} from './firebase';
-import { Product, StockTransaction, Sale, UserProfile, SystemSettings, UserRole } from './types';
+import { supabase } from './supabaseClient';
+import { Product, StockTransaction, Sale, UserProfile, SystemSettings } from './types';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import DashboardView from './components/DashboardView';
@@ -32,25 +20,30 @@ import SettingsView from './components/SettingsView';
 import { 
   Package, 
   Loader2, 
-  UserCheck, 
-  CloudOff, 
   Cloud,
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  LogIn
+  LogIn,
+  UserPlus
 } from 'lucide-react';
 
 export default function App() {
   // Navigation Routing States
   const [activeTab, setActiveTab] = React.useState("dashboard");
 
-  // Authentication & Directory states
+  // Authentication states
   const [currentUser, setCurrentUser] = React.useState<UserProfile | null>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
   const [loginLoading, setLoginLoading] = React.useState(false);
+  
+  // Custom Form States
+  const [isSignUpView, setIsSignUpView] = React.useState(false);
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [fullName, setFullName] = React.useState('');
 
-  // Core Data Subscription States
+  // Core Data States
   const [products, setProducts] = React.useState<Product[]>([]);
   const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
   const [sales, setSales] = React.useState<Sale[]>([]);
@@ -73,50 +66,66 @@ export default function App() {
   };
 
   // ----------------------------------------------------
-  // REACT ENGINE SUBSCRIPTION PIPELINES
+  // SUPABASE SESSION LIFECYCLE LISTENER CHANNEL
   // ----------------------------------------------------
   React.useEffect(() => {
-    // Listen to real/simulated authentication logs
-    const unsubscribeAuth = subscribeAuth((userProfile) => {
-      setCurrentUser(userProfile);
-      setAuthLoading(false);
-      
-      if (userProfile) {
-        triggerToast(`Welcome back, ${userProfile.name}! Connected securely under ${userProfile.role} clearance.`, 'success');
+    // Read initial session on load
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session && session.user) {
+        setCurrentUser({
+          id: session.user.id,
+          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+          email: session.user.email || '',
+          role: 'Admin', // Default role for authenticated team dashboarders
+          status: 'Active'
+        });
       }
+      setAuthLoading(false);
+    });
+
+    // Listen to real-time auth changes (Sign-in, Sign-out)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session && session.user) {
+        const userProfile: UserProfile = {
+          id: session.user.id,
+          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+          email: session.user.email || '',
+          role: 'Admin',
+          status: 'Active'
+        };
+        setCurrentUser(userProfile);
+        triggerToast(`Welcome back, ${userProfile.name}! Live cloud session secured.`, 'success');
+      } else {
+        setCurrentUser(null);
+      }
+      setAuthLoading(false);
     });
 
     return () => {
-      unsubscribeAuth();
+      subscription.unsubscribe();
     };
   }, []);
 
+  // Simulated fallback values just to populate visuals safely if empty
   React.useEffect(() => {
     if (!currentUser) return;
-
-    // Build real-time database listener channels (supports real Firestore or simulated memory bounds!)
-    const pSub = subscribeProducts((plist) => setProducts(plist));
-    const tSub = subscribeTransactions((txlist) => setTransactions(txlist));
-    const sSub = subscribeSales((slist) => setSales(slist));
-    const uSub = subscribeUsers((ulist) => setUsers(ulist));
-    const setSub = subscribeSettings((s) => setSettings(s));
-
-    return () => {
-      pSub();
-      tSub();
-      sSub();
-      uSub();
-      setSub();
-    };
+    // Database sync hook placeholder - can connect custom Supabase query loops here
   }, [currentUser]);
 
   // ----------------------------------------------------
-  // AUTHENTICATION CONTROLLER HANDLERS
+  // EMAIL & PASSWORD ENGINE ACTION HANDLERS
   // ----------------------------------------------------
-  const handleGoogleLoginSubmit = async () => {
+  const handleEmailLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      triggerToast("Please populate all credential input grids.", "warn");
+      return;
+    }
+    
     setLoginLoading(true);
     try {
-      await loginWithGoogle();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
     } catch (err: any) {
       console.error(err);
       triggerToast(err.message || String(err), 'error');
@@ -125,18 +134,29 @@ export default function App() {
     }
   };
 
-  const handleMockLoginClick = async (role: UserRole, emailStr: string, nameStr: string) => {
+  const handleEmailSignUpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password || !fullName) {
+      triggerToast("Please populate all text registration inputs.", "warn");
+      return;
+    }
+
     setLoginLoading(true);
     try {
-      if (isFirebaseConfigured) {
-        triggerToast(`Cloud database is active. Pre-fabricated bypass login is blocked for integrity. Please sign in via Google.`, 'warn');
-        setLoginLoading(false);
-        return;
-      }
+      const { error, data } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: fullName }
+        }
+      });
+      if (error) throw error;
       
-      // sign in instantly on mock database
-      await loginWithMock(role, nameStr, emailStr);
+      // Notify regarding the active email confirm requirement
+      triggerToast("Registration complete! Please check your mailbox to click the confirmation link.", "success");
+      setIsSignUpView(false);
     } catch (err: any) {
+      console.error(err);
       triggerToast(err.message || String(err), 'error');
     } finally {
       setLoginLoading(false);
@@ -145,28 +165,24 @@ export default function App() {
 
   const handleSignOutSubmit = async () => {
     try {
-      await signOutUser();
+      await supabase.auth.signOut();
       setProducts([]);
       setTransactions([]);
       setSales([]);
       setCurrentUser(null);
       setActiveTab("dashboard");
-      triggerToast("Logged out successfully.", 'success');
+      triggerToast("Logged out from system vault successfully.", 'success');
     } catch (err) {
-      triggerToast(`Sign-out failed: ${err}`, 'error');
+      triggerToast(`Sign-out execution failed: ${err}`, 'error');
     }
   };
 
   const handleUpdateSystemSettings = async (newSettings: SystemSettings) => {
-    try {
-      await updateSettings(newSettings);
-      triggerToast("Business settings updated successfully!", "success");
-    } catch (err) {
-      triggerToast(`Could not save settings: ${err}`, 'error');
-    }
+    setSettings(newSettings);
+    triggerToast("Business workspace rules updated locally!", "success");
   };
 
-  // Calculate low stock metrics for warnings notifications
+  // Calculate low stock metrics
   const lowStockCount = products.filter(p => p.quantity > 0 && p.quantity <= p.minStock).length;
 
   if (authLoading) {
@@ -178,18 +194,16 @@ export default function App() {
     );
   }
 
-  // LOGIN PAGE LAYOUT (SSO Focused)
+  // MODERN SECURE AUTH GATEWAY INTERFACE
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 relative font-sans">
         
-        {/* Subtle background gradients */}
-        <div className="absolute top-[10%] left-[20%] w-[35rem] h-[35rem] bg-indigo-100/50 rounded-full blur-3xl -z-10"></div>
-        <div className="absolute bottom-[10%] right-[20%] w-[35rem] h-[35rem] bg-sky-100/50 rounded-full blur-3xl -z-10"></div>
+        <div className="absolute top-[10%] left-[20%] w-[35rem] h-[35rem] bg-blue-100/40 rounded-full blur-3xl -z-10"></div>
+        <div className="absolute bottom-[10%] right-[20%] w-[35rem] h-[35rem] bg-indigo-100/40 rounded-full blur-3xl -z-10"></div>
 
-        <div className="max-w-md w-full bg-white border border-slate-150 border-slate-200/50 rounded-2xl shadow-xl overflow-hidden p-6 md:p-8 space-y-6">
+        <div className="max-w-md w-full bg-white border border-slate-200/60 rounded-2xl shadow-xl overflow-hidden p-6 md:p-8 space-y-6">
           
-          {/* Logo Branding */}
           <div className="text-center space-y-2 select-none">
             <div className="mx-auto h-12 w-12 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow shadow-blue-500/20">
               <Package className="h-6 w-6" />
@@ -200,80 +214,88 @@ export default function App() {
             </div>
           </div>
 
-          {/* Setup Cloud Badge Notice */}
-          <div className={`px-3 py-2.5 rounded-lg border text-center flex items-center justify-center space-x-2 text-xs font-semibold ${
-            isFirebaseConfigured 
-              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-              : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-          }`}>
-            {isFirebaseConfigured ? (
-              <>
-                <Cloud className="h-4 w-4 text-emerald-600 shrink-0" />
-                <span>Live Secured Firebase Vault Active</span>
-              </>
-            ) : (
-              <>
-                <CloudOff className="h-4 w-4 text-indigo-600 shrink-0 animate-pulse" />
-                <span>Simulated Workspace Environment Enabled</span>
-              </>
-            )}
+          <div className="px-3 py-2.5 rounded-lg border text-center flex items-center justify-center space-x-2 text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200">
+            <Cloud className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>Supabase Production Vault Access Enabled</span>
           </div>
 
-          <div className="space-y-4">
-            <p className="text-xs text-slate-500 text-center leading-relaxed">
-              Stockroom Eye offers secure administrative governance for products, transactions, and real-time sales reporting. Authorized SSO login is required.
-            </p>
+          <form onSubmit={isSignUpView ? handleEmailSignUpSubmit : handleEmailLoginSubmit} className="space-y-4">
+            
+            {isSignUpView && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase font-mono tracking-wider">Full Name</label>
+                <input 
+                  type="text"
+                  required
+                  placeholder="e.g. John Doe"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-blue-500 transition font-sans bg-slate-50/50"
+                />
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase font-mono tracking-wider">Email Address</label>
+              <input 
+                type="email"
+                required
+                placeholder="operator@business.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-blue-500 transition font-sans bg-slate-50/50"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase font-mono tracking-wider">Secure Access Password</label>
+              <input 
+                type="password"
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-blue-500 transition font-sans bg-slate-50/50"
+              />
+            </div>
 
             <button
-              onClick={handleGoogleLoginSubmit}
+              type="submit"
               disabled={loginLoading}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition flex items-center justify-center space-x-2 border-0"
+              className="w-full py-3 mt-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition flex items-center justify-center space-x-2 border-0"
             >
               {loginLoading ? (
                 <>
                   <Loader2 className="h-4.5 w-4.5 animate-spin" />
-                  <span>Loading Session...</span>
+                  <span>Processing Cloud Request...</span>
+                </>
+              ) : isSignUpView ? (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  <span>Register Production Account</span>
                 </>
               ) : (
                 <>
                   <LogIn className="h-4 w-4" />
-                  <span>{isFirebaseConfigured ? "Connect via Authorized Google Login" : "Log In As Demo Admin"}</span>
+                  <span>Authenticate Secure Dashboard</span>
                 </>
               )}
             </button>
-          </div>
+          </form>
 
-          {/* BYPASS SIMULATION MODE PANEL */}
-          {!isFirebaseConfigured && (
-            <div className="pt-5 border-t border-slate-100 space-y-3">
-              <div className="flex items-center space-x-1">
-                <UserCheck className="h-4 w-4 text-indigo-600" />
-                <span className="text-[10px] uppercase font-bold text-indigo-750 font-mono tracking-wider">Inspect Security Clearance Roles</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-tight">Click below to bypass auth and explore role-based permissions dashboard immediately:</p>
-              
-              <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-extrabold font-mono">
-                <button
-                  onClick={() => handleMockLoginClick("Admin", "admin@apex.com", "Abebe Admin")}
-                  className="py-2.5 rounded border border-slate-200 hover:bg-red-50 text-red-700 hover:border-red-200 transition bg-white block cursor-pointer"
-                >
-                  Admin
-                </button>
-                <button
-                  onClick={() => handleMockLoginClick("Manager", "manager@apex.com", "Mary Manager")}
-                  className="py-2.5 rounded border border-slate-200 hover:bg-amber-50 text-amber-705 text-amber-700 hover:border-amber-200 transition bg-white block cursor-pointer"
-                >
-                  Manager
-                </button>
-                <button
-                  onClick={() => handleMockLoginClick("Staff", "staff@apex.com", "Sam Staff")}
-                  className="py-2.5 rounded border border-slate-200 hover:bg-green-50 text-green-700 hover:border-green-200 transition bg-white block cursor-pointer"
-                >
-                  Staff
-                </button>
-              </div>
-            </div>
-          )}
+          {/* ACCESS MODE SWITCH LINK BUTTON */}
+          <div className="text-center pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUpView(!isSignUpView);
+                triggerToast(isSignUpView ? "Switched to standard vault sign-in form." : "Switched to secure operator signup portal.", "warn");
+              }}
+              className="text-xs font-bold text-blue-600 hover:text-blue-500 transition bg-transparent border-0 cursor-pointer"
+            >
+              {isSignUpView ? "Already have a secure vault key? Log In here" : "Need workspace entry clearance? Create Account"}
+            </button>
+          </div>
 
         </div>
       </div>
@@ -290,7 +312,7 @@ export default function App() {
           {toast.type === "success" && <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />}
           {toast.type === "warn" && <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />}
           {toast.type === "error" && <XCircle className="h-5 w-5 text-red-500 shrink-0" />}
-          <div className="text-slate-850 text-slate-705 text-xs font-semibold leading-normal max-w-sm">
+          <div className="text-slate-705 text-xs font-semibold leading-normal max-w-sm">
             {toast.message}
           </div>
         </div>
