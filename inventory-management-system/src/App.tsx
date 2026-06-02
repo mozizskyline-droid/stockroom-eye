@@ -12,6 +12,63 @@ import {
   Boxes
 } from 'lucide-react';
 
+// 1. ADD THIS NEW FORM COMPONENT
+function AddProductForm({ onProductAdded }: { onProductAdded: () => void }) {
+  const [name, setName] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    // This uses your existing 'supabase' connection
+    const { error } = await supabase.from('products').insert([{ name }]);
+    if (error) console.error("Insert error:", error);
+    else {
+      setName('');
+      onProductAdded(); // This triggers the refresh
+    }
+    setLoading(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-6 p-4 bg-slate-100 rounded-xl flex gap-2">
+      <input 
+        className="flex-1 p-2 border rounded text-xs"
+        placeholder="New product name" 
+        value={name} 
+        onChange={(e) => setName(e.target.value)} 
+      />
+      <button disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold">
+        {loading ? 'Adding...' : 'Add Item'}
+      </button>
+    </form>
+  );
+}
+
+// 2. UPDATE YOUR EXISTING INVENTORY VIEW
+function InventoryView() {
+  const [products, setProducts] = React.useState<any[]>([]);
+  const [refresh, setRefresh] = React.useState(0);
+
+  React.useEffect(() => {
+    supabase.from('products').select('*').then(({ data }) => setProducts(data || []));
+  }, [refresh]);
+
+  return (
+    <div>
+      {/* Include the new form here */}
+      <AddProductForm onProductAdded={() => setRefresh(r => r + 1)} />
+      
+      <div className="space-y-2">
+        {products.map((p) => (
+          <div key={p.id} className="p-3 bg-white border border-slate-200 rounded-lg text-xs">
+            {p.name}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function InventoryView() {
   const [products, setProducts] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
